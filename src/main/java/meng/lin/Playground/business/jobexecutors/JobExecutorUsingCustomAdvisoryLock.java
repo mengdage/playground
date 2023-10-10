@@ -1,4 +1,4 @@
-package meng.lin.Playground.business;
+package meng.lin.Playground.business.jobexecutors;
 
 
 import static meng.lin.Playground.business.Constants.BATCH_SIZE;
@@ -7,37 +7,33 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Random;
 
-import javax.persistence.EntityManager;
-import javax.persistence.PersistenceContext;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
+import meng.lin.Playground.business.ResultWriter;
+import meng.lin.Playground.business.locking.AdvisoryLockManager;
+import meng.lin.Playground.business.locking.TaskLockManager;
 import meng.lin.Playground.data.NumberEntity;
 import meng.lin.Playground.data.NumberRepository;
 
 @Component
-public class JobExecutorUsingPGAdvisoryLock implements JobExecutor {
+public class JobExecutorUsingCustomAdvisoryLock implements JobExecutor {
 
-  private static final Logger LOG = LoggerFactory.getLogger(JobExecutorUsingPGAdvisoryLock.class);
+  private static final Logger LOG = LoggerFactory.getLogger(JobExecutorUsingCustomAdvisoryLock.class);
 
   @Autowired
   private NumberRepository numberRepository;
 
-  @PersistenceContext
-  private EntityManager entityManager;
+  @Autowired
+  private AdvisoryLockManager advisoryLockManager;
 
   @Override
-  @Transactional
   public long run(String name) {
+    TaskLockManager taskLockManager = new TaskLockManager(advisoryLockManager, "numbers_tasks_lock", name);
 
-    Boolean result = (Boolean) entityManager.createNativeQuery("SELECT pg_try_advisory_xact_lock(7878)")
-        .getSingleResult();
-
-    if (!result) {
+    if (!taskLockManager.acquireLock()) {
       LOG.info("{}: Failed to acquire the advisory lock.", name);
       return -1L;
     }
@@ -55,10 +51,11 @@ public class JobExecutorUsingPGAdvisoryLock implements JobExecutor {
 
     if (uncompletedTasks.isEmpty()) {
       LOG.info("{}: No task to execute.", name);
+      taskLockManager.releaseLock();
       return 0L;
     }
 
-    try (ResultWriter writer = new ResultWriter(name + "_pg_advisory_lock_logs")) {
+    try (ResultWriter writer = new ResultWriter(name + "_custom_advisory_lock_logs")) {
       uncompletedTasks.stream().forEach(task -> {
         try {
           writer.append(task.toString() + "\n");
@@ -75,5 +72,4 @@ public class JobExecutorUsingPGAdvisoryLock implements JobExecutor {
 
     return uncompletedTasks.size();
   }
-
 }

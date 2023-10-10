@@ -1,4 +1,4 @@
-package meng.lin.Playground.business;
+package meng.lin.Playground.business.jobexecutors;
 
 public interface JobExecutor {
 
